@@ -21,10 +21,11 @@
 ```bash
 git clone https://github.com/chjers/cnn4rs.git
 cd cnn4rs
-mvn -B -ntp -pl examples -am test
+mvn -B -ntp -pl examples -am package
+java -cp examples/target/classes:cnn4rs-core/target/classes io.github.chjers.cnn4rs.examples.InMemoryClassifierExample
 ```
 
-该命令会执行 `InMemoryClassifierExample` 的 smoke test；示例主方法输出形如：
+第二条命令直接启动 `InMemoryClassifierExample`；它只使用 core 类路径，不读取文件，也不加载 GDAL。输出为：
 
 ```text
 predictedClass=0
@@ -40,7 +41,14 @@ mvn -B -ntp test
 
 ## English quick start
 
-Use JDK 17 and Maven. The in-memory example is deterministic, core-only, and requires neither GDAL nor local data paths. Run `mvn -B -ntp -pl examples -am test`; its main method prints `predictedClass=0`. Run `mvn -B -ntp test` for the complete reactor test suite. See [GDAL setup](docs/gdal-setup.md) before running the optional raster example.
+Use JDK 17 and Maven. The in-memory example is deterministic, core-only, and requires neither GDAL nor local data paths:
+
+```bash
+mvn -B -ntp -pl examples -am package
+java -cp examples/target/classes:cnn4rs-core/target/classes io.github.chjers.cnn4rs.examples.InMemoryClassifierExample
+```
+
+The second command launches the example directly and prints `predictedClass=0`. Run `mvn -B -ntp test` for the complete reactor test suite. See [GDAL setup](docs/gdal-setup.md) before running the optional raster example.
 
 ## 架构与迁移
 
