@@ -8,6 +8,7 @@ public final class Models {
     static final String DENSE = "dense";
     static final String CONVOLUTION = "conv2d";
     static final String MAX_POOL = "maxPool2d";
+    static final String FLATTEN = "flatten";
     static final String RELU = "relu";
     static final String SOFTMAX = "softmax";
 

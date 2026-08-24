@@ -24,6 +24,7 @@ public final class ModelCheckpoint {
     private static final int MAX_POOL_TAG = 3;
     private static final int RELU_TAG = 4;
     private static final int SOFTMAX_TAG = 5;
+    private static final int FLATTEN_TAG = 6;
 
     private ModelCheckpoint() {
     }
@@ -75,15 +76,21 @@ public final class ModelCheckpoint {
             for (int index = 0; index < layerCount; index++) {
                 descriptors.add(readDescriptor(input, index));
             }
+            ModelConfig config = new ModelConfig(descriptors, classCount, seed);
+            try {
+                ModelStructure.validateDescriptors(config);
+            } catch (IllegalArgumentException exception) {
+                throw input.invalid(exception.getMessage());
+            }
             List<Layer> layers = new ArrayList<>(layerCount);
             for (int index = 0; index < descriptors.size(); index++) {
                 layers.add(readLayer(input, descriptors.get(index), index));
             }
+            SequentialModel model = new SequentialModel(config, layers);
             if (input.hasTrailingContent()) {
                 throw input.invalid("unexpected trailing content after model parameters");
             }
-            ModelConfig config = new ModelConfig(descriptors, classCount, seed);
-            return new SequentialModel(config, layers);
+            return model;
         } catch (IOException exception) {
             throw exception;
         } catch (RuntimeException exception) {
@@ -93,32 +100,12 @@ public final class ModelCheckpoint {
     }
 
     private static void validateModelStructure(SequentialModel model) throws IOException {
-        for (int index = 0; index < model.layers().size(); index++) {
-            Layer layer = model.layers().get(index);
-            ModelConfig.LayerDescriptor descriptor = model.config().layers().get(index);
-            if (!matches(layer, descriptor)) {
-                throw new IOException("model layer " + index + " does not match checkpoint descriptor "
-                        + descriptor.type() + descriptor.parameters());
-            }
+        try {
+            ModelStructure.validate(model.config(), model.layers());
+        } catch (IllegalArgumentException exception) {
+            throw new IOException("invalid model structure for checkpoint: "
+                    + exception.getMessage(), exception);
         }
-    }
-
-    private static boolean matches(Layer layer, ModelConfig.LayerDescriptor descriptor) {
-        List<Integer> values = descriptor.parameters();
-        return switch (descriptor.type()) {
-            case Models.DENSE -> layer instanceof Dense dense && values.size() == 2
-                    && values.get(0) == dense.inputSize() && values.get(1) == dense.outputSize();
-            case Models.CONVOLUTION -> layer instanceof Conv2D convolution && values.size() == 4
-                    && values.get(0) == convolution.inputChannels()
-                    && values.get(1) == convolution.outputChannels()
-                    && values.get(2) == convolution.kernelSize()
-                    && values.get(3) == convolution.stride();
-            case Models.MAX_POOL -> layer instanceof MaxPool2D pool && values.size() == 2
-                    && values.get(0) == pool.windowSize() && values.get(1) == pool.stride();
-            case Models.RELU -> layer instanceof ReLU && values.isEmpty();
-            case Models.SOFTMAX -> layer instanceof Softmax && values.isEmpty();
-            default -> false;
-        };
     }
 
     private static void writeDescriptor(DataOutputStream output,
@@ -143,6 +130,11 @@ public final class ModelCheckpoint {
                 output.writeByte(MAX_POOL_TAG);
                 output.writeInt(values.get(0));
                 output.writeInt(values.get(1));
+            }
+            case Models.FLATTEN -> {
+                requireParameterCount(descriptor, 1);
+                output.writeByte(FLATTEN_TAG);
+                output.writeInt(values.get(0));
             }
             case Models.RELU -> {
                 requireParameterCount(descriptor, 0);
@@ -180,6 +172,8 @@ public final class ModelCheckpoint {
             case MAX_POOL_TAG -> Models.descriptor(Models.MAX_POOL,
                     input.readPositiveInt("layer " + index + " pool window size"),
                     input.readPositiveInt("layer " + index + " pool stride"));
+            case FLATTEN_TAG -> Models.descriptor(Models.FLATTEN,
+                    input.readPositiveInt("layer " + index + " flatten input element count"));
             case RELU_TAG -> Models.descriptor(Models.RELU);
             case SOFTMAX_TAG -> Models.descriptor(Models.SOFTMAX);
             default -> throw input.invalid("unknown layer type tag " + tag + " at layer " + index);
@@ -240,6 +234,7 @@ public final class ModelCheckpoint {
                         weights, biases);
             }
             case Models.MAX_POOL -> new MaxPool2D(values.get(0), values.get(1));
+            case Models.FLATTEN -> new Flatten(values.get(0));
             case Models.RELU -> new ReLU();
             case Models.SOFTMAX -> new Softmax();
             default -> throw input.invalid("unsupported layer type '" + descriptor.type()

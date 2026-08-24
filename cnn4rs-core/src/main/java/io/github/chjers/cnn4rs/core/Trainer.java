@@ -126,6 +126,9 @@ public final class Trainer {
         if (layer instanceof MaxPool2D pool) {
             return backwardPool(pool, input, outputGradient);
         }
+        if (layer instanceof Flatten) {
+            return Tensor.of(outputGradient.toArray(), input.shape().dimensions());
+        }
         if (layer instanceof Softmax) {
             return backwardSoftmax(output, outputGradient);
         }

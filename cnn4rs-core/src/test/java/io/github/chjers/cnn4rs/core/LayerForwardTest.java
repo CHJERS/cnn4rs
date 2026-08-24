@@ -104,4 +104,21 @@ class LayerForwardTest {
         assertEquals(1f, output.get(0) + output.get(1), 0.00001f);
         assertTrue(output.get(1) > output.get(0));
     }
+
+    @Test
+    void flattenConvertsExpectedInputToRankOne() {
+        Flatten flatten = new Flatten(4);
+
+        Tensor output = flatten.forward(Tensor.of(new float[] {1, 2, 3, 4}, 1, 2, 2));
+
+        assertArrayEquals(new int[] {4}, output.shape().dimensions());
+        assertArrayEquals(new float[] {1, 2, 3, 4}, output.toArray());
+    }
+
+    @Test
+    void flattenRejectsUnexpectedElementCount() {
+        Flatten flatten = new Flatten(4);
+
+        assertThrows(InvalidTensorException.class, () -> flatten.forward(Tensor.zeros(1, 1, 3)));
+    }
 }
