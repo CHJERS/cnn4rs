@@ -1,0 +1,12 @@
+# Maven and Java build output
+target/
+*.class
+
+# IntelliJ IDEA metadata
+.idea/
+*.iml
+
+# Local GDAL configuration
+.gdal/
+gdal.local.properties
+local-gdal.properties
