@@ -47,6 +47,12 @@ class LayerForwardTest {
     }
 
     @Test
+    void convolutionRandomConstructorRejectsOverflowingParameterShape() {
+        assertThrows(InvalidTensorException.class,
+                () -> new Conv2D(1, 50_000, 50_000, 1, new Random(7)));
+    }
+
+    @Test
     void maxPoolUsesChwWindows() {
         MaxPool2D pool = new MaxPool2D(2, 2);
 
@@ -76,6 +82,12 @@ class LayerForwardTest {
 
         assertArrayEquals(new float[] {9, 17}, output.toArray());
         assertThrows(InvalidTensorException.class, () -> dense.forward(Tensor.zeros(1, 2)));
+    }
+
+    @Test
+    void denseRandomConstructorRejectsOverflowingParameterShape() {
+        assertThrows(InvalidTensorException.class,
+                () -> new Dense(50_000, 50_000, new Random(7)));
     }
 
     @Test

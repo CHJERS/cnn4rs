@@ -15,11 +15,12 @@ public final class Dense implements TrainableLayer {
         Objects.requireNonNull(random, "random must not be null");
         this.inputSize = inputSize;
         this.outputSize = outputSize;
-        float[] randomWeights = new float[inputSize * outputSize];
+        Shape parameterShape = Shape.of(outputSize, inputSize);
+        float[] randomWeights = new float[parameterShape.elementCount()];
         for (int index = 0; index < randomWeights.length; index++) {
             randomWeights[index] = random.nextFloat() - 0.5f;
         }
-        this.weights = Tensor.of(randomWeights, outputSize, inputSize);
+        this.weights = Tensor.of(randomWeights, parameterShape.dimensions());
         this.biases = new float[outputSize];
     }
 

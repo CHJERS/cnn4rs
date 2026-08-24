@@ -19,11 +19,12 @@ public final class Conv2D implements TrainableLayer {
         this.outputChannels = outputChannels;
         this.kernelSize = kernelSize;
         this.stride = stride;
-        float[] randomWeights = new float[outputChannels * inputChannels * kernelSize * kernelSize];
+        Shape parameterShape = Shape.of(outputChannels, inputChannels, kernelSize, kernelSize);
+        float[] randomWeights = new float[parameterShape.elementCount()];
         for (int index = 0; index < randomWeights.length; index++) {
             randomWeights[index] = random.nextFloat() - 0.5f;
         }
-        this.weights = Tensor.of(randomWeights, outputChannels, inputChannels, kernelSize, kernelSize);
+        this.weights = Tensor.of(randomWeights, parameterShape.dimensions());
         this.biases = new float[outputChannels];
     }
 
