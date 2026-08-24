@@ -7,7 +7,7 @@ import java.util.Random;
 public final class Dense implements TrainableLayer {
     private final int inputSize;
     private final int outputSize;
-    private final Tensor weights;
+    private Tensor weights;
     private final float[] biases;
 
     public Dense(int inputSize, int outputSize, Random random) {
@@ -70,6 +70,43 @@ public final class Dense implements TrainableLayer {
             output[outputIndex] = sum;
         }
         return Tensor.of(output, outputSize);
+    }
+
+    int inputSize() {
+        return inputSize;
+    }
+
+    int outputSize() {
+        return outputSize;
+    }
+
+    Tensor weights() {
+        return weights;
+    }
+
+    float[] biases() {
+        return biases.clone();
+    }
+
+    void applyGradients(float[] weightGradients, float[] biasGradients, float scale) {
+        if (weightGradients.length != inputSize * outputSize
+                || biasGradients.length != outputSize) {
+            throw new IllegalArgumentException("dense gradient dimensions do not match parameters");
+        }
+        float[] updatedWeights = weights.toArray();
+        for (int index = 0; index < updatedWeights.length; index++) {
+            updatedWeights[index] -= scale * weightGradients[index];
+            if (!Float.isFinite(updatedWeights[index])) {
+                throw new IllegalStateException("dense update produced a non-finite weight at index " + index);
+            }
+        }
+        for (int index = 0; index < biases.length; index++) {
+            biases[index] -= scale * biasGradients[index];
+            if (!Float.isFinite(biases[index])) {
+                throw new IllegalStateException("dense update produced a non-finite bias at index " + index);
+            }
+        }
+        weights = Tensor.of(updatedWeights, outputSize, inputSize);
     }
 
     private static void validateConfiguration(int inputSize, int outputSize) {

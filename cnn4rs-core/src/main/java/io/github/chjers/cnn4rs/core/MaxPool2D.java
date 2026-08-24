@@ -49,4 +49,12 @@ public final class MaxPool2D implements Layer {
         }
         return Tensor.of(output, channels, outputHeight, outputWidth);
     }
+
+    int windowSize() {
+        return windowSize;
+    }
+
+    int stride() {
+        return stride;
+    }
 }

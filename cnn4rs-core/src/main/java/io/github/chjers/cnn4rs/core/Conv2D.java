@@ -9,7 +9,7 @@ public final class Conv2D implements TrainableLayer {
     private final int outputChannels;
     private final int kernelSize;
     private final int stride;
-    private final Tensor weights;
+    private Tensor weights;
     private final float[] biases;
 
     public Conv2D(int inputChannels, int outputChannels, int kernelSize, int stride, Random random) {
@@ -92,6 +92,51 @@ public final class Conv2D implements TrainableLayer {
             }
         }
         return Tensor.of(output, outputChannels, outputHeight, outputWidth);
+    }
+
+    int inputChannels() {
+        return inputChannels;
+    }
+
+    int outputChannels() {
+        return outputChannels;
+    }
+
+    int kernelSize() {
+        return kernelSize;
+    }
+
+    int stride() {
+        return stride;
+    }
+
+    Tensor weights() {
+        return weights;
+    }
+
+    float[] biases() {
+        return biases.clone();
+    }
+
+    void applyGradients(float[] weightGradients, float[] biasGradients, float scale) {
+        int weightCount = outputChannels * inputChannels * kernelSize * kernelSize;
+        if (weightGradients.length != weightCount || biasGradients.length != outputChannels) {
+            throw new IllegalArgumentException("convolution gradient dimensions do not match parameters");
+        }
+        float[] updatedWeights = weights.toArray();
+        for (int index = 0; index < updatedWeights.length; index++) {
+            updatedWeights[index] -= scale * weightGradients[index];
+            if (!Float.isFinite(updatedWeights[index])) {
+                throw new IllegalStateException("convolution update produced a non-finite weight at index " + index);
+            }
+        }
+        for (int index = 0; index < biases.length; index++) {
+            biases[index] -= scale * biasGradients[index];
+            if (!Float.isFinite(biases[index])) {
+                throw new IllegalStateException("convolution update produced a non-finite bias at index " + index);
+            }
+        }
+        weights = Tensor.of(updatedWeights, outputChannels, inputChannels, kernelSize, kernelSize);
     }
 
     private static void validateConfiguration(int inputChannels, int outputChannels,
