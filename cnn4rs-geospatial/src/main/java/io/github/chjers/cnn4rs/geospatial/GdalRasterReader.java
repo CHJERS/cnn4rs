@@ -5,8 +5,6 @@ import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
-import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
 import java.nio.file.Path;
 import java.util.Objects;
 
@@ -17,6 +15,15 @@ import java.util.Objects;
 public final class GdalRasterReader implements RasterReader {
     private static final String GDAL_CLASS = "org.gdal.gdal.gdal";
     private static final String GDAL_CONSTANTS_CLASS = "org.gdal.gdalconst.gdalconstConstants";
+    private final ClassLoader gdalClassLoader;
+
+    public GdalRasterReader() {
+        this(GdalRasterReader.class.getClassLoader());
+    }
+
+    GdalRasterReader(ClassLoader gdalClassLoader) {
+        this.gdalClassLoader = Objects.requireNonNull(gdalClassLoader, "GDAL class loader must not be null");
+    }
 
     @Override
     public RasterTile read(Path path) {
@@ -24,6 +31,7 @@ public final class GdalRasterReader implements RasterReader {
         Class<?> gdal = loadGdal();
         Object dataset = null;
         try {
+            register(gdal);
             dataset = openReadOnly(gdal, path);
             int width = invokeInt(dataset, "GetRasterXSize");
             int height = invokeInt(dataset, "GetRasterYSize");
@@ -31,7 +39,8 @@ public final class GdalRasterReader implements RasterReader {
             if (width <= 0 || height <= 0 || bandCount <= 0) {
                 throw new IllegalStateException("GDAL dataset has invalid raster dimensions");
             }
-            return new RasterTile(Tensor.of(readBands(dataset, width, height, bandCount),
+            return new RasterTile(Tensor.of(readBands(dataset, width, height, bandCount,
+                    gdalConstant("GDT_Float32")),
                     bandCount, height, width), 0, 0);
         } catch (ReflectiveOperationException exception) {
             throw new IllegalStateException("unable to read raster through GDAL's read-only Java API", exception);
@@ -40,16 +49,20 @@ public final class GdalRasterReader implements RasterReader {
         }
     }
 
-    private static Class<?> loadGdal() {
+    private Class<?> loadGdal() {
         try {
-            return Class.forName(GDAL_CLASS);
+            return Class.forName(GDAL_CLASS, true, gdalClassLoader);
         } catch (ClassNotFoundException | LinkageError exception) {
             throw new GdalUnavailableException("GDAL is unavailable: add the " + GDAL_CLASS
                     + " Java bindings and matching native GDAL libraries to the runtime.", exception);
         }
     }
 
-    private static Object openReadOnly(Class<?> gdal, Path path) throws ReflectiveOperationException {
+    private static void register(Class<?> gdal) throws ReflectiveOperationException {
+        gdal.getMethod("AllRegister").invoke(null);
+    }
+
+    private Object openReadOnly(Class<?> gdal, Path path) throws ReflectiveOperationException {
         int readOnly = gdalConstant("GA_ReadOnly");
         Method open = gdal.getMethod("Open", String.class, int.class);
         Object dataset = open.invoke(null, path.toString(), readOnly);
@@ -59,8 +72,8 @@ public final class GdalRasterReader implements RasterReader {
         return dataset;
     }
 
-    private static int gdalConstant(String name) throws ReflectiveOperationException {
-        Class<?> constants = Class.forName(GDAL_CONSTANTS_CLASS);
+    private int gdalConstant(String name) throws ReflectiveOperationException {
+        Class<?> constants = Class.forName(GDAL_CONSTANTS_CLASS, true, gdalClassLoader);
         Field field = constants.getField(name);
         Object value = field.get(null);
         if (!(value instanceof Number number)) {
@@ -69,7 +82,7 @@ public final class GdalRasterReader implements RasterReader {
         return number.intValue();
     }
 
-    private static float[] readBands(Object dataset, int width, int height, int bandCount)
+    private static float[] readBands(Object dataset, int width, int height, int bandCount, int float32)
             throws ReflectiveOperationException {
         int pixelsPerBand = Math.multiplyExact(width, height);
         float[] values = new float[Math.multiplyExact(pixelsPerBand, bandCount)];
@@ -78,7 +91,7 @@ public final class GdalRasterReader implements RasterReader {
             if (band == null) {
                 throw new IllegalStateException("GDAL returned no raster band " + (bandIndex + 1));
             }
-            float[] bandValues = readBand(band, width, height);
+            float[] bandValues = readBand(band, width, height, float32);
             if (bandValues.length != pixelsPerBand) {
                 throw new IllegalStateException("GDAL returned " + bandValues.length + " values for raster band "
                         + (bandIndex + 1) + ", expected " + pixelsPerBand);
@@ -88,60 +101,19 @@ public final class GdalRasterReader implements RasterReader {
         return values;
     }
 
-    private static float[] readBand(Object band, int width, int height) throws ReflectiveOperationException {
-        Method method = findReadRasterMethod(band.getClass());
-        Object raw;
-        if (method.getParameterCount() == 5) {
-            raw = method.invoke(band, 0, 0, width, height, gdalConstant("GDT_Float32"));
-        } else {
-            raw = method.invoke(band, 0, 0, width, height);
+    private static float[] readBand(Object band, int width, int height, int float32)
+            throws ReflectiveOperationException {
+        Method readRaster = band.getClass().getMethod("ReadRaster", int.class, int.class,
+                int.class, int.class, int.class, float[].class);
+        float[] values = new float[Math.multiplyExact(width, height)];
+        Object status = readRaster.invoke(band, 0, 0, width, height, float32, values);
+        if (!(status instanceof Integer result)) {
+            throw new IllegalStateException("GDAL ReadRaster did not return an integer status");
         }
-        int expectedLength = Math.multiplyExact(width, height);
-        if (raw instanceof float[] values) {
-            return values.clone();
+        if (result != 0) {
+            throw new IllegalStateException("GDAL ReadRaster failed with status " + result);
         }
-        if (raw instanceof double[] values) {
-            float[] converted = new float[values.length];
-            for (int index = 0; index < values.length; index++) {
-                converted[index] = (float) values[index];
-            }
-            return converted;
-        }
-        if (raw instanceof byte[] values && values.length == Math.multiplyExact(expectedLength, Float.BYTES)) {
-            float[] converted = new float[expectedLength];
-            ByteBuffer buffer = ByteBuffer.wrap(values).order(ByteOrder.nativeOrder());
-            for (int index = 0; index < converted.length; index++) {
-                converted[index] = buffer.getFloat();
-            }
-            return converted;
-        }
-        throw new IllegalStateException("GDAL ReadRaster did not return float-compatible raster data");
-    }
-
-    private static Method findReadRasterMethod(Class<?> bandType) throws NoSuchMethodException {
-        for (Method method : bandType.getMethods()) {
-            Class<?>[] parameters = method.getParameterTypes();
-            if (method.getName().equals("ReadRaster") && parameters.length == 5
-                    && allIntegers(parameters)) {
-                return method;
-            }
-        }
-        for (Method method : bandType.getMethods()) {
-            Class<?>[] parameters = method.getParameterTypes();
-            if (method.getName().equals("ReadRaster") && parameters.length == 4 && allIntegers(parameters)) {
-                return method;
-            }
-        }
-        throw new NoSuchMethodException("GDAL band has no four-coordinate ReadRaster method");
-    }
-
-    private static boolean allIntegers(Class<?>[] parameters) {
-        for (Class<?> parameter : parameters) {
-            if (parameter != int.class) {
-                return false;
-            }
-        }
-        return true;
+        return values;
     }
 
     private static int invokeInt(Object target, String methodName) throws ReflectiveOperationException {

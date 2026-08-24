@@ -2,6 +2,8 @@ package io.github.chjers.cnn4rs.geospatial;
 
 import io.github.chjers.cnn4rs.core.Tensor;
 import java.nio.file.Path;
+import org.gdal.gdal.gdal;
+import org.gdal.gdalconst.gdalconstConstants;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
@@ -13,9 +15,37 @@ class GdalAvailabilityTest {
     @Test
     void explainsHowToEnableGdalWhenBindingsAreAbsent() {
         GdalUnavailableException error = assertThrows(GdalUnavailableException.class,
-                () -> new GdalRasterReader().read(Path.of("missing.tif")));
+                () -> new GdalRasterReader(new MissingGdalClassLoader()).read(Path.of("missing.tif")));
 
         assertTrue(error.getMessage().contains("org.gdal"));
+    }
+
+    @Test
+    void registersGdalAndReadsFloatBufferThroughBindingContract() {
+        gdal.reset();
+
+        RasterTile tile = new GdalRasterReader().read(Path.of("contract.tif"));
+
+        assertEquals(1, gdal.allRegisterCalls());
+        assertTrue(!gdal.openedBeforeRegistration());
+        assertEquals(gdalconstConstants.GA_ReadOnly, gdal.lastOpenAccess());
+        assertEquals(gdalconstConstants.GDT_Float32, gdal.lastReadDataType());
+        assertEquals(0, gdal.lastReadStatus());
+        assertEquals(1f, tile.data().get(0, 0, 0));
+        assertEquals(4f, tile.data().get(0, 1, 1));
+        assertTrue(gdal.datasetWasDeleted());
+    }
+
+    @Test
+    void rejectsNonzeroGdalReadRasterStatus() {
+        gdal.reset();
+        gdal.setReadStatus(7);
+
+        IllegalStateException error = assertThrows(IllegalStateException.class,
+                () -> new GdalRasterReader().read(Path.of("contract.tif")));
+
+        assertTrue(error.getMessage().contains("status 7"));
+        assertTrue(gdal.datasetWasDeleted());
     }
 
     @Test
@@ -28,5 +58,19 @@ class GdalAvailabilityTest {
         assertThrows(IllegalArgumentException.class, () -> new RasterTile(Tensor.zeros(2, 3), 0, 0));
         assertThrows(IllegalArgumentException.class, () -> new RasterTile(Tensor.zeros(1, 1, 1), -1, 0));
         assertThrows(IllegalArgumentException.class, () -> new RasterTile(Tensor.zeros(1, 1, 1), 0, -1));
+    }
+
+    private static final class MissingGdalClassLoader extends ClassLoader {
+        private MissingGdalClassLoader() {
+            super(GdalRasterReader.class.getClassLoader());
+        }
+
+        @Override
+        protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
+            if (name.equals("org.gdal.gdal.gdal")) {
+                throw new ClassNotFoundException(name);
+            }
+            return super.loadClass(name, resolve);
+        }
     }
 }
