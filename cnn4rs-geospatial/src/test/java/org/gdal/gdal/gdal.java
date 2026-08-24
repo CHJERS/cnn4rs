@@ -6,6 +6,8 @@ public final class gdal {
     private static int allRegisterCalls;
     private static int lastOpenAccess;
     private static boolean openedBeforeRegistration;
+    private static LinkageError allRegisterFailure;
+    private static LinkageError openFailure;
 
     private gdal() {
     }
@@ -15,13 +17,21 @@ public final class gdal {
         allRegisterCalls = 0;
         lastOpenAccess = Integer.MIN_VALUE;
         openedBeforeRegistration = false;
+        allRegisterFailure = null;
+        openFailure = null;
     }
 
     public static void AllRegister() {
+        if (allRegisterFailure != null) {
+            throw allRegisterFailure;
+        }
         allRegisterCalls++;
     }
 
     public static Dataset Open(String path, int access) {
+        if (openFailure != null) {
+            throw openFailure;
+        }
         openedBeforeRegistration = allRegisterCalls == 0;
         lastOpenAccess = access;
         return dataset;
@@ -49,6 +59,14 @@ public final class gdal {
 
     public static void setReadStatus(int status) {
         dataset.band().setStatus(status);
+    }
+
+    public static void setAllRegisterFailure(LinkageError failure) {
+        allRegisterFailure = failure;
+    }
+
+    public static void setOpenFailure(LinkageError failure) {
+        openFailure = failure;
     }
 
     public static boolean datasetWasDeleted() {

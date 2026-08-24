@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -18,6 +19,41 @@ class GdalAvailabilityTest {
                 () -> new GdalRasterReader(new MissingGdalClassLoader()).read(Path.of("missing.tif")));
 
         assertTrue(error.getMessage().contains("org.gdal"));
+    }
+
+    @Test
+    void explainsHowToEnableGdalWhenConstantsBindingsAreAbsent() {
+        GdalUnavailableException error = assertThrows(GdalUnavailableException.class,
+                () -> new GdalRasterReader(new MissingConstantsClassLoader()).read(Path.of("missing.tif")));
+
+        assertTrue(error.getMessage().contains("gdalconstConstants"));
+        assertTrue(error.getCause() instanceof ClassNotFoundException);
+    }
+
+    @Test
+    void explainsHowToEnableGdalWhenRegistrationCannotLinkNativeLibraries() {
+        gdal.reset();
+        UnsatisfiedLinkError nativeBindingFailure = new UnsatisfiedLinkError("missing gdalalljni");
+        gdal.setAllRegisterFailure(nativeBindingFailure);
+
+        GdalUnavailableException error = assertThrows(GdalUnavailableException.class,
+                () -> new GdalRasterReader().read(Path.of("contract.tif")));
+
+        assertEquals(nativeBindingFailure, error.getCause());
+        assertTrue(error.getMessage().contains("AllRegister"));
+    }
+
+    @Test
+    void explainsHowToEnableGdalWhenOpenCannotLinkNativeLibraries() {
+        gdal.reset();
+        UnsatisfiedLinkError nativeBindingFailure = new UnsatisfiedLinkError("missing gdalalljni");
+        gdal.setOpenFailure(nativeBindingFailure);
+
+        GdalUnavailableException error = assertThrows(GdalUnavailableException.class,
+                () -> new GdalRasterReader().read(Path.of("contract.tif")));
+
+        assertEquals(nativeBindingFailure, error.getCause());
+        assertTrue(error.getMessage().contains("Open"));
     }
 
     @Test
@@ -45,6 +81,7 @@ class GdalAvailabilityTest {
                 () -> new GdalRasterReader().read(Path.of("contract.tif")));
 
         assertTrue(error.getMessage().contains("status 7"));
+        assertFalse(error instanceof GdalUnavailableException);
         assertTrue(gdal.datasetWasDeleted());
     }
 
@@ -68,6 +105,20 @@ class GdalAvailabilityTest {
         @Override
         protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
             if (name.equals("org.gdal.gdal.gdal")) {
+                throw new ClassNotFoundException(name);
+            }
+            return super.loadClass(name, resolve);
+        }
+    }
+
+    private static final class MissingConstantsClassLoader extends ClassLoader {
+        private MissingConstantsClassLoader() {
+            super(GdalRasterReader.class.getClassLoader());
+        }
+
+        @Override
+        protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
+            if (name.equals("org.gdal.gdalconst.gdalconstConstants")) {
                 throw new ClassNotFoundException(name);
             }
             return super.loadClass(name, resolve);

@@ -58,28 +58,58 @@ public final class GdalRasterReader implements RasterReader {
         }
     }
 
-    private static void register(Class<?> gdal) throws ReflectiveOperationException {
-        gdal.getMethod("AllRegister").invoke(null);
+    private static void register(Class<?> gdal) {
+        invokeGdalStatic(gdal, "AllRegister");
     }
 
-    private Object openReadOnly(Class<?> gdal, Path path) throws ReflectiveOperationException {
+    private Object openReadOnly(Class<?> gdal, Path path) {
         int readOnly = gdalConstant("GA_ReadOnly");
-        Method open = gdal.getMethod("Open", String.class, int.class);
-        Object dataset = open.invoke(null, path.toString(), readOnly);
+        Object dataset = invokeGdalStatic(gdal, "Open", new Class<?>[]{String.class, int.class},
+                path.toString(), readOnly);
         if (dataset == null) {
             throw new IllegalArgumentException("GDAL could not open raster " + path + " for read-only access");
         }
         return dataset;
     }
 
-    private int gdalConstant(String name) throws ReflectiveOperationException {
-        Class<?> constants = Class.forName(GDAL_CONSTANTS_CLASS, true, gdalClassLoader);
-        Field field = constants.getField(name);
-        Object value = field.get(null);
-        if (!(value instanceof Number number)) {
-            throw new IllegalStateException("GDAL constant " + name + " is not numeric");
+    private int gdalConstant(String name) {
+        try {
+            Class<?> constants = Class.forName(GDAL_CONSTANTS_CLASS, true, gdalClassLoader);
+            Field field = constants.getField(name);
+            Object value = field.get(null);
+            if (!(value instanceof Number number)) {
+                throw new GdalUnavailableException("GDAL bindings are incompatible: constant " + name
+                        + " in " + GDAL_CONSTANTS_CLASS + " is not numeric", null);
+            }
+            return number.intValue();
+        } catch (ClassNotFoundException | LinkageError exception) {
+            throw new GdalUnavailableException("GDAL is unavailable: add the " + GDAL_CONSTANTS_CLASS
+                    + " Java bindings and matching native GDAL libraries to the runtime.", exception);
+        } catch (NoSuchFieldException | IllegalAccessException exception) {
+            throw new GdalUnavailableException("GDAL bindings are incompatible: cannot read constant " + name
+                    + " from " + GDAL_CONSTANTS_CLASS + ".", exception);
         }
-        return number.intValue();
+    }
+
+    private static Object invokeGdalStatic(Class<?> gdal, String methodName) {
+        return invokeGdalStatic(gdal, methodName, new Class<?>[0]);
+    }
+
+    private static Object invokeGdalStatic(Class<?> gdal, String methodName, Class<?>[] parameterTypes,
+                                           Object... arguments) {
+        try {
+            return gdal.getMethod(methodName, parameterTypes).invoke(null, arguments);
+        } catch (NoSuchMethodException | IllegalAccessException exception) {
+            throw new GdalUnavailableException("GDAL bindings are incompatible: required method " + methodName
+                    + " is unavailable on " + GDAL_CLASS + ".", exception);
+        } catch (InvocationTargetException exception) {
+            Throwable cause = exception.getCause();
+            if (cause instanceof LinkageError) {
+                throw new GdalUnavailableException("GDAL is unavailable: " + methodName
+                        + " could not link the matching native GDAL libraries.", cause);
+            }
+            throw new IllegalStateException("GDAL method " + methodName + " failed", cause);
+        }
     }
 
     private static float[] readBands(Object dataset, int width, int height, int bandCount, int float32)
