@@ -23,6 +23,8 @@ class GdalAvailabilityTest {
 
     @Test
     void explainsHowToEnableGdalWhenConstantsBindingsAreAbsent() {
+        gdal.reset();
+
         GdalUnavailableException error = assertThrows(GdalUnavailableException.class,
                 () -> new GdalRasterReader(new MissingConstantsClassLoader()).read(Path.of("missing.tif")));
 
